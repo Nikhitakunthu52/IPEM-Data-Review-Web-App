@@ -18,10 +18,15 @@ We are building a web app that pulls voltage, current and temperature data from 
 **Week-by-week plan**
 Week	Dates	Focus	Nikhita (lead)	Shreya (frontend)	Ayush (backend/data)	Done when
 1	Sep 30–Oct 2	Discovery and access	Get server, VPN and InfluxDB read token; kickoff at this Friday's meeting; pick stack; set up repo	Scaffold web app, routing, login page	Inspect buckets (AP_features, Features_V2): measurements, tags, fields, sample rate	Architecture and schema notes are written; everyone can query InfluxDB
+
 2	Oct 5–9	Backend foundation	Build HTTPS API skeleton and auth; define endpoints	Device list and detail pages on mock data	Device registry mapping MAC address to device; queries for latest values and history with downsampling	API returns real voltage and current for one device
+
 3	Oct 12–16	End-to-end visualization	Connect web app to API; code reviews	Live and historical charts for voltage and current; time-range picker	Aggregation windows that reduce the 15 samples/sec stream for the browser; latest-value endpoint	Mid-point demo: one device shown live in the browser
+
 4	Oct 19–23	Temperature and alerts	Alert design (thresholds, who gets notified)	Temperature view; alert banners and settings page	Temperature threshold job and notification service (e.g. email); multi-device support	A temperature breach shows an alert and notifies the right people
+
 5	Oct 26–30	Hardening and deployment	Security review; deploy API and web app on lab server over HTTPS	Error, empty and loading states; responsive layout; UI polish	Caching and rate limits for 100–1,000 requests/day; logging	Web app works against the deployed server; lab members test it
+
 6	Nov 2–6	Fixes, docs, handover	Handover docs; final demo	Bug fixes; production build	API docs; setup and runbook	Final demo Fri Nov 6
 Buffer	Nov 9–13	Slack and handover	Address feedback from demo	Fixes as needed	Fixes as needed	Lab signs off
 
