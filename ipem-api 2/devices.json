@@ -1,0 +1,4 @@
+[
+  { "id": "dev-01", "name": "Test bench 1", "mac": "AA:BB:CC:DD:EE:01" },
+  { "id": "dev-02", "name": "Test bench 2", "mac": "AA:BB:CC:DD:EE:02" }
+]
