@@ -1,7 +1,7 @@
 """Data sources for the IPEM Lab API.
 
 MockSource  - fake sine-wave data so the frontend can be built before server access.
-InfluxSource - real data from InfluxDB 2.x (the Telegraf -> InfluxDB pipeline).
+InfluxSource - real data from InfluxDB 1.8 (InfluxQL over HTTP, username/password).
 
 Pick one with DATA_MODE=mock|influx in .env.
 """
@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 FIELDS = {
-    # API name  -> field name in InfluxDB (confirm once we can read the buckets)
+    # API name  -> field name in InfluxDB (set in .env; empty = not available, returns null)
     "voltage": os.getenv("FIELD_VOLTAGE", "voltage"),
     "current": os.getenv("FIELD_CURRENT", "current"),
     "temperature": os.getenv("FIELD_TEMPERATURE", "temperature"),
@@ -58,61 +58,103 @@ class MockSource:
 
 
 class InfluxSource:
+    """InfluxDB 1.8 via the HTTP /query endpoint (InfluxQL, username/password)."""
     mode = "influx"
 
     def __init__(self):
-        from influxdb_client import InfluxDBClient  # imported here so mock mode needs no Influx install
+        import requests
+        import urllib3
 
-        self.client = InfluxDBClient(
-            url=os.environ["INFLUX_URL"],
-            token=os.environ["INFLUX_TOKEN"],
-            org=os.environ["INFLUX_ORG"],
-            timeout=10_000,
+        self.requests = requests
+        self.url = os.environ["INFLUX_URL"].rstrip("/") + "/query"
+        self.auth = (os.environ["INFLUX_USER"], os.environ["INFLUX_PASSWORD"])
+        self.db = os.environ["INFLUX_DB"]
+        self.measurement = os.environ["INFLUX_MEASUREMENT"]
+        self.mac_tag = os.getenv("INFLUX_MAC_TAG", "location")
+        self.verify = os.getenv("INFLUX_VERIFY_SSL", "true").lower() != "false"
+        if not self.verify:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        # Temperature lives in a different database (waveform), stored x10.
+        self.temp_db = os.getenv("INFLUX_TEMP_DB", "")
+        self.temp_measurement = os.getenv("INFLUX_TEMP_MEASUREMENT", "temperature")
+        self.temp_field = os.getenv("INFLUX_TEMP_FIELD", "value")
+        self.temp_divisor = float(os.getenv("INFLUX_TEMP_DIVISOR", "10"))
+
+    def _query(self, q: str, db: str | None = None):
+        r = self.requests.get(
+            self.url, params={"db": db or self.db, "q": q},
+            auth=self.auth, verify=self.verify, timeout=10,
         )
-        self.query_api = self.client.query_api()
-        self.bucket = os.environ["INFLUX_BUCKET"]
-        self.measurement = os.getenv("INFLUX_MEASUREMENT", "")
-        self.mac_tag = os.getenv("INFLUX_MAC_TAG", "mac")
+        r.raise_for_status()
+        result = r.json()["results"][0]
+        if "error" in result:
+            raise RuntimeError(result["error"])
+        series = result.get("series")
+        return series[0] if series else None
 
-    def _base(self, device, start: str) -> str:
-        # All values below come from config or the device registry, never from request input.
-        field_filter = " or ".join(f'r._field == "{f}"' for f in FIELDS.values())
-        measurement = f' and r._measurement == "{self.measurement}"' if self.measurement else ""
-        return (
-            f'from(bucket: "{self.bucket}")\n'
-            f"  |> range(start: {start})\n"
-            f'  |> filter(fn: (r) => r["{self.mac_tag}"] == "{device["mac"]}"{measurement})\n'
-            f"  |> filter(fn: (r) => {field_filter})\n"
-        )
+    def _where(self, device, start: str) -> str:
+        mac = device["mac"].replace("'", "")
+        return f"WHERE \"{self.mac_tag}\" = '{mac}' AND time > now() - {start}"
 
-    def _rows(self, flux: str):
-        reverse = {v: k for k, v in FIELDS.items()}
+    def _rows(self, series):
+        if not series:
+            return []
+        cols = series["columns"]
         rows = []
-        for table in self.query_api.query(flux):
-            for rec in table.records:
-                row = {"time": _iso(rec.get_time())}
-                for influx_name, api_name in reverse.items():
-                    val = rec.values.get(influx_name)
-                    row[api_name] = None if val is None else round(float(val), 4)
-                rows.append(row)
-        rows.sort(key=lambda r: r["time"])
+        for values in series["values"]:
+            d = dict(zip(cols, values))
+            row = {"time": d["time"]}
+            for api_name in FIELDS:
+                val = d.get(api_name)
+                row[api_name] = None if val is None else round(float(val), 4)
+            rows.append(row)
         return rows
 
+    def _temp_latest(self, device):
+        if not self.temp_db:
+            return None
+        try:
+            q = (f'SELECT last("{self.temp_field}") FROM "{self.temp_measurement}" '
+                 f'{self._where(device, "5m")}')
+            series = self._query(q, self.temp_db)
+            val = series["values"][0][1] if series else None
+            return None if val is None else round(float(val) / self.temp_divisor, 2)
+        except Exception:
+            return None
+
+    def _temp_history(self, device, range_: str, window: str):
+        if not self.temp_db:
+            return {}
+        try:
+            q = (f'SELECT mean("{self.temp_field}") FROM "{self.temp_measurement}" '
+                 f'{self._where(device, range_)} GROUP BY time({window}) fill(none)')
+            series = self._query(q, self.temp_db)
+            if not series:
+                return {}
+            return {t: round(float(v) / self.temp_divisor, 2)
+                    for t, v in series["values"] if v is not None}
+        except Exception:
+            return {}
+
     def latest(self, device):
-        flux = self._base(device, "-5m") + (
-            "  |> last()\n"
-            '  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")\n'
-        )
-        rows = self._rows(flux)
-        return rows[-1] if rows else None
+        cols = ", ".join(f'"{v}" AS "{k}"' for k, v in FIELDS.items() if v)
+        q = (f'SELECT {cols} FROM "{self.measurement}" '
+             f'{self._where(device, "5m")} ORDER BY time DESC LIMIT 1')
+        rows = self._rows(self._query(q))
+        if not rows:
+            return None
+        rows[0]["temperature"] = self._temp_latest(device)
+        return rows[0]
 
     def history(self, device, range_: str, window: str):
-        flux = self._base(device, f"-{range_}") + (
-            f"  |> aggregateWindow(every: {window}, fn: mean, createEmpty: false)\n"
-            '  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")\n'
-        )
-        return self._rows(flux)
-
+        cols = ", ".join(f'mean("{v}") AS "{k}"' for k, v in FIELDS.items() if v)
+        q = (f'SELECT {cols} FROM "{self.measurement}" '
+             f'{self._where(device, range_)} GROUP BY time({window}) fill(none)')
+        rows = self._rows(self._query(q))
+        temps = self._temp_history(device, range_, window)
+        for row in rows:
+            row["temperature"] = temps.get(row["time"])
+        return rows
 
 def get_source():
     return InfluxSource() if os.getenv("DATA_MODE", "mock") == "influx" else MockSource()
