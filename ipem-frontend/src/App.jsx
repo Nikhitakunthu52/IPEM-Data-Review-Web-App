@@ -25,8 +25,20 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshCount, setRefreshCount] = useState(0);
+  const [autoRefresh, setAutoRefresh] = useState(0);
 
   const deviceId = selectedDevice?.id;
+  useEffect(() => {
+  if (autoRefresh === 0) {
+    return;
+  }
+
+  const timer = setInterval(() => {
+    setRefreshCount((count) => count + 1);
+  }, autoRefresh * 1000);
+
+  return () => clearInterval(timer);
+}, [autoRefresh]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -93,12 +105,27 @@ export default function App() {
           </p>
         </div>
 
-        <button
-          onClick={() => setRefreshCount((count) => count + 1)}
-          disabled={loading}
-        >
-          Refresh
-        </button>
+        <div className = "refresh-controls">
+          <label htmlFor="auto-refresh">Auto-refresh:</label>
+
+          <select
+            id="auto-refresh"
+            value={autoRefresh}
+            onChange={(event) => setAutoRefresh(Number(event.target.value))}
+          >
+              <option value={0}>Off</option>
+              <option value={10}>10 seconds</option>
+              <option value={30}>30 seconds</option>
+              <option value={60}>1 minute</option>
+            </select>
+
+            <button
+              onClick={() => setRefreshCount((count) => count + 1)}
+              disabled={loading}
+            >
+              Refresh
+            </button>
+        </div>
       </header>
 
       {selectedDevice && (
