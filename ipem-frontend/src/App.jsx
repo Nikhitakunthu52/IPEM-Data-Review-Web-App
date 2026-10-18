@@ -1,128 +1,96 @@
-body {
-  background: #16171d;
-  color: #f3f4f6;
+import { useEffect, useState } from "react";
+import "./App.css";
+
+const API_URL = "http://localhost:8000";
+
+async function fetchData(path, signal) {
+  const response = await fetch(`${API_URL}${path}`, {
+    headers: {
+      "X-API-Key": "dev-key",
+    },
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed (${response.status}).`);
+  }
+
+  return response.json();
 }
 
-.dashboard {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 40px 24px;
-}
+export default function App() {
+  const [devices, setDevices] = useState([]);
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [reading, setReading] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [refreshCount, setRefreshCount] = useState(0);
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 20px;
-  margin-bottom: 24px;
-}
+  const deviceId = selectedDevice?.id;
 
-.eyebrow {
-  color: #c084fc;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 2px;
-}
+  useEffect(() => {
+    const controller = new AbortController();
 
-h1 {
-  margin: 8px 0;
-  font-size: 32px;
-}
+    async function loadData() {
+      setLoading(true);
+      setError("");
+      setReading(null);
 
-h2, h3 {
-  margin-top: 0;
-}
+      try {
+        if (deviceId) {
+          const data = await fetchData(
+            `/devices/${encodeURIComponent(deviceId)}/latest`,
+            controller.signal,
+          );
+          setReading(data);
+        } else {
+          const data = await fetchData("/devices", controller.signal);
+          setDevices(data);
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          setError(`${err.message} Check that the API is running on port 8000.`);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }
 
-button {
-  padding: 12px 18px;
-  border: 1px solid #2e303a;
-  border-radius: 10px;
-  background: #1f2028;
-  color: #f3f4f6;
-  font: inherit;
-  cursor: pointer;
-}
+    loadData();
 
-button:hover {
-  border-color: #c084fc;
-  background: rgba(192, 132, 252, 0.15);
-}
+    return () => controller.abort();
+  }, [deviceId, refreshCount]);
 
-button:focus-visible {
-  outline: 3px solid #c084fc;
-  outline-offset: 3px;
-}
+  function openDevice(device) {
+    setReading(null);
+    setError("");
+    setLoading(true);
+    setSelectedDevice(device);
+  }
 
-button:disabled {
-  opacity: 0.5;
-  cursor: wait;
-}
+  function showDeviceList() {
+    setError("");
+    setLoading(true);
+    setSelectedDevice(null);
+  }
 
-.back-button {
-  margin-bottom: 24px;
-}
+  function formatValue(value, unit) {
+    return value == null ? "No data" : `${value} ${unit}`;
+  }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 20px;
-}
+  return (
+    <main className="dashboard">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">IPEM LAB · MOCK DATA</p>
+          <h1>{selectedDevice ? selectedDevice.name : "Devices"}</h1>
+          <p>
+            {selectedDevice
+              ? `Device ID: ${selectedDevice.id} · MAC: ${selectedDevice.mac}`
+              : "Select a device to view its latest measurements."}
+          </p>
+        </div>
 
-.device-card, .metric-card, .chart-card {
-  min-width: 0;
-  padding: 24px;
-  border: 1px solid #2e303a;
-  border-radius: 14px;
-  background: #1f2028;
-  color: #f3f4f6;
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-
-.device-card:hover {
-  border-color: #c084fc;
-  background: rgba(192, 132, 252, 0.15);
-}
-
-.device-card span {
-  display: block;
-  margin-top: 24px;
-  color: #c084fc;
-  font-weight: 600;
-}
-
-.page-header > div > p:not(.eyebrow),
-.device-card p {
-  color: #9ca3af;
-}
-
-.metric-card h2 {
-  font-size: 16px;
-  color: #9ca3af;
-}
-
-.metric-card p {
-  margin: 12px 0 0;
-  font-size: 30px;
-  font-weight: 700;
-  color: #c084fc;
-}
-
-.timestamp {
-  color: #9ca3af;
-  font-size: 14px;
-}
-
-.section-title {
-  margin-top: 36px;
-}
-
-.chart-placeholder {
-  min-height: 180px;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  border: 1px dashed rgba(192, 132, 252, 0.5);
-  border-radius: 8px;
-  background: rgba(192, 132, 252, 0.05);
-  color: #9ca3af;
+        <button
