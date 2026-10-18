@@ -1,202 +1,128 @@
-import { useEffect, useState } from "react";
-import "./App.css";
-
-const API_URL = "http://localhost:8000";
-
-async function fetchData(path, signal) {
-  const response = await fetch(`${API_URL}${path}`, {
-    headers: {
-      "X-API-Key": "dev-key",
-    },
-    signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Request failed (${response.status}).`);
-  }
-
-  return response.json();
+body {
+  background: #16171d;
+  color: #f3f4f6;
 }
 
-export default function App() {
-  const [devices, setDevices] = useState([]);
-  const [selectedDevice, setSelectedDevice] = useState(null);
-  const [reading, setReading] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [refreshCount, setRefreshCount] = useState(0);
-  const [autoRefresh, setAutoRefresh] = useState(0);
-
-  const deviceId = selectedDevice?.id;
-  useEffect(() => {
-  if (autoRefresh === 0) {
-    return;
-  }
-
-  const timer = setInterval(() => {
-    setRefreshCount((count) => count + 1);
-  }, autoRefresh * 1000);
-
-  return () => clearInterval(timer);
-}, [autoRefresh]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function loadData() {
-      setLoading(true);
-      setError("");
-      setReading(null);
-
-      try {
-        if (deviceId) {
-          const data = await fetchData(
-            `/devices/${encodeURIComponent(deviceId)}/latest`,
-            controller.signal,
-          );
-          setReading(data);
-        } else {
-          const data = await fetchData("/devices", controller.signal);
-          setDevices(data);
-        }
-      } catch (err) {
-        if (!controller.signal.aborted) {
-          setError(`${err.message} Check that the API is running on port 8000.`);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadData();
-
-    return () => controller.abort();
-  }, [deviceId, refreshCount]);
-
-  function openDevice(device) {
-    setReading(null);
-    setError("");
-    setLoading(true);
-    setSelectedDevice(device);
-  }
-
-  function showDeviceList() {
-    setError("");
-    setLoading(true);
-    setSelectedDevice(null);
-  }
-
-  function formatValue(value, unit) {
-    return value == null ? "No data" : `${value} ${unit}`;
-  }
-
-  return (
-    <main className="dashboard">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">IPEM LAB · MOCK DATA</p>
-          <h1>{selectedDevice ? selectedDevice.name : "Devices"}</h1>
-          <p>
-            {selectedDevice
-              ? `Device ID: ${selectedDevice.id} · MAC: ${selectedDevice.mac}`
-              : "Select a device to view its latest measurements."}
-          </p>
-        </div>
-
-        <div className = "refresh-controls">
-          <label htmlFor="auto-refresh">Auto-refresh:</label>
-
-          <select
-            id="auto-refresh"
-            value={autoRefresh}
-            onChange={(event) => setAutoRefresh(Number(event.target.value))}
-          >
-              <option value={0}>Off</option>
-              <option value={10}>10 seconds</option>
-              <option value={30}>30 seconds</option>
-              <option value={60}>1 minute</option>
-            </select>
-
-            <button
-              onClick={() => setRefreshCount((count) => count + 1)}
-              disabled={loading}
-            >
-              Refresh
-            </button>
-        </div>
-      </header>
-
-      {selectedDevice && (
-        <button className="back-button" onClick={showDeviceList}>
-          ← All devices
-        </button>
-      )}
-
-      {loading && <p role="status">Loading…</p>}
-      {error && <p className="error" role="alert">{error}</p>}
-
-      {!loading && !error && !selectedDevice && (
-        <section className="grid" aria-label="Devices">
-          {devices.length === 0 && <p>No devices available.</p>}
-
-          {devices.map((device) => (
-            <button
-              key={device.id}
-              className="device-card"
-              onClick={() => openDevice(device)}
-            >
-              <h2>{device.name}</h2>
-              <p>ID: {device.id}</p>
-              <p>MAC: {device.mac}</p>
-              <span>View readings →</span>
-            </button>
-          ))}
-        </section>
-      )}
-
-      {selectedDevice && (
-        <>
-          {!loading && !error && reading && (
-            <>
-              <p className="timestamp">
-                Last reading: {new Date(reading.time).toLocaleString()}
-              </p>
-
-              <section className="grid" aria-label="Latest measurements">
-                <article className="metric-card">
-                  <h2>Voltage</h2>
-                  <p>{formatValue(reading.voltage, "V")}</p>
-                </article>
-
-                <article className="metric-card">
-                  <h2>Current</h2>
-                  <p>{formatValue(reading.current, "A")}</p>
-                </article>
-
-                <article className="metric-card">
-                  <h2>Temperature</h2>
-                  <p>{formatValue(reading.temperature, "°C")}</p>
-                </article>
-              </section>
-            </>
-          )}
-
-          <h2 className="section-title">Measurement history</h2>
-
-          <section className="grid" aria-label="Future charts">
-            {["Voltage", "Current", "Temperature"].map((name) => (
-              <article className="chart-card" key={name}>
-                <h3>{name}</h3>
-                <div className="chart-placeholder">
-                  History chart coming next week
-                </div>
-              </article>
-            ))}
-          </section>
-        </>
-      )}
-    </main>
-  );
+.dashboard {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 40px 24px;
 }
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  color: #c084fc;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+h1 {
+  margin: 8px 0;
+  font-size: 32px;
+}
+
+h2, h3 {
+  margin-top: 0;
+}
+
+button {
+  padding: 12px 18px;
+  border: 1px solid #2e303a;
+  border-radius: 10px;
+  background: #1f2028;
+  color: #f3f4f6;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #c084fc;
+  background: rgba(192, 132, 252, 0.15);
+}
+
+button:focus-visible {
+  outline: 3px solid #c084fc;
+  outline-offset: 3px;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.back-button {
+  margin-bottom: 24px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+}
+
+.device-card, .metric-card, .chart-card {
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid #2e303a;
+  border-radius: 14px;
+  background: #1f2028;
+  color: #f3f4f6;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.device-card:hover {
+  border-color: #c084fc;
+  background: rgba(192, 132, 252, 0.15);
+}
+
+.device-card span {
+  display: block;
+  margin-top: 24px;
+  color: #c084fc;
+  font-weight: 600;
+}
+
+.page-header > div > p:not(.eyebrow),
+.device-card p {
+  color: #9ca3af;
+}
+
+.metric-card h2 {
+  font-size: 16px;
+  color: #9ca3af;
+}
+
+.metric-card p {
+  margin: 12px 0 0;
+  font-size: 30px;
+  font-weight: 700;
+  color: #c084fc;
+}
+
+.timestamp {
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+.section-title {
+  margin-top: 36px;
+}
+
+.chart-placeholder {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  border: 1px dashed rgba(192, 132, 252, 0.5);
+  border-radius: 8px;
+  background: rgba(192, 132, 252, 0.05);
+  color: #9ca3af;
