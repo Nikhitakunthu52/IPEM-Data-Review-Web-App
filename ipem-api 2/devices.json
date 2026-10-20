@@ -1,4 +1,7 @@
 [
-  { "id": "dev-01", "name": "Test bench 1", "mac": "AA:BB:CC:DD:EE:01" },
-  { "id": "dev-02", "name": "Test bench 2", "mac": "AA:BB:CC:DD:EE:02" }
+  { "id": "dev-01", "name": "EMU 10:20:ba:51:dd:84", "mac": "10:20:ba:51:dd:84" },
+  { "id": "dev-02", "name": "EMU 10:20:ba:51:dd:7c", "mac": "10:20:ba:51:dd:7c" },
+  { "id": "dev-03", "name": "EMU 10:20:ba:51:d9:78", "mac": "10:20:ba:51:d9:78" },
+  { "id": "dev-04", "name": "EMU 10:20:ba:51:d9:2c", "mac": "10:20:ba:51:d9:2c" },
+  { "id": "dev-05", "name": "Smart plug dc:da:0c:3c:6d:80", "mac": "dc:da:0c:3c:6d:80" }
 ]
