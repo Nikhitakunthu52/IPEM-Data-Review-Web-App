@@ -1,5 +1,10 @@
 // All calls to the IPEM Lab API go through this file.
 // Settings come from ipem-frontend/.env (see .env.example); defaults work for local dev.
+// VITE_DEMO=true swaps in demoApi.js, which runs entirely in the browser
+// (used on GitHub Pages until the API is hosted on the lab server).
+import { demoApi } from "./demoApi";
+
+export const DEMO = import.meta.env.VITE_DEMO === "true";
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const API_KEY = import.meta.env.VITE_API_KEY ?? "dev-key";
 
@@ -36,7 +41,7 @@ async function request(path, { method = "GET", body, signal } = {}) {
   return response.status === 204 ? null : response.json();
 }
 
-export const api = {
+const realApi = {
   health: (signal) => request("/health", { signal }),
   limits: (signal) => request("/limits", { signal }),
   devices: (signal) => request("/devices", { signal }),
@@ -46,3 +51,5 @@ export const api = {
   history: (id, range, signal) =>
     request(`/devices/${encodeURIComponent(id)}/history?range=${range}`, { signal }),
 };
+
+export const api = DEMO ? demoApi : realApi;

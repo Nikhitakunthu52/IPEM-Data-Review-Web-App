@@ -4,6 +4,8 @@ import { api } from "./api";
 import DeviceList from "./components/DeviceList";
 import DeviceDetail from "./components/DeviceDetail";
 
+const MODE_LABEL = { mock: "MOCK DATA", demo: "DEMO DATA", influx: "LIVE DATA" };
+
 // The open device is kept in the URL (?device=dev-01) so reload and the
 // browser's back button work.
 function deviceFromUrl() {
@@ -53,8 +55,14 @@ export default function App() {
     <main className="dashboard">
       <p className="eyebrow">
         IPEM LAB
-        {mode && <span className={`mode-badge mode-${mode}`}>{mode === "mock" ? "MOCK DATA" : "LIVE DATA"}</span>}
+        {mode && <span className={`mode-badge mode-${mode}`}>{MODE_LABEL[mode] ?? mode.toUpperCase()}</span>}
       </p>
+
+      {mode === "demo" && (
+        <p className="demo-note">
+          Demo version: readings are simulated in your browser, and devices you add are saved only on this computer.
+        </p>
+      )}
 
       {loading && <p role="status">Loading…</p>}
       {error && <p className="error" role="alert">{error}</p>}

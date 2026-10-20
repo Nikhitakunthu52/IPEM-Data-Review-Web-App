@@ -38,3 +38,13 @@ Fridays, 11:00 AM–12:00 PM ET: weekly project meeting to demo the week's work 
 Daily: async standup in the group chat covering what's done, what's next and any blockers
 Fri Oct 16, 11 AM: mid-point demo
 Fri Nov 6, 11 AM: final demo
+
+## Hosting
+
+**Web app:** https://nikhitakunthu52.github.io/IPEM-Data-Review-Web-App/
+
+The site rebuilds automatically on every push to `main` that touches `ipem-frontend/` (workflow: `.github/workflows/deploy-pages.yml`).
+
+- **Right now it runs in demo mode.** Readings are simulated in the browser, and devices added there are saved only in that browser. GitHub Pages can only host the website, not the Python API.
+- **To switch to live data:** once the API runs on the lab server over HTTPS, add the repository variables `API_URL` and `API_KEY` (Settings → Secrets and variables → Actions → Variables), then re-run the workflow. The lab server's `.env` must include `https://nikhitakunthu52.github.io` in `CORS_ORIGINS`.
+- **Local development is unchanged.** Run the API and `npm run dev` as before. To try demo mode locally, put `VITE_DEMO=true` in `ipem-frontend/.env`.
