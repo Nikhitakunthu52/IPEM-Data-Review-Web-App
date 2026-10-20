@@ -1,0 +1,66 @@
+# Builds ipem-frontend and publishes it to GitHub Pages on every push to main.
+#
+# One-time setup: repo Settings -> Pages -> Source: "GitHub Actions".
+#
+# Until the API is hosted somewhere public (the lab server), the site runs in
+# demo mode with simulated data. To switch it to live data, add repository
+# variables under Settings -> Secrets and variables -> Actions -> Variables:
+#   API_URL = https://<lab-server>/api   (must be https)
+#   API_KEY = <the API key>              (note: visible to anyone who opens the site)
+# and re-run this workflow.
+name: Deploy web app to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["ipem-frontend/**", "ipem-api 2/limits.json", "ipem-api 2/devices.json", ".github/workflows/deploy-pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ipem-frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ipem-frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_DEMO: ${{ vars.API_URL == '' && 'true' || 'false' }}
+          VITE_API_URL: ${{ vars.API_URL }}
+          VITE_API_KEY: ${{ vars.API_KEY }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ipem-frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
