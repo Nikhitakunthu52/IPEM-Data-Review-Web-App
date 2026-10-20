@@ -1,0 +1,30 @@
+{
+  "voltage": {
+    "label": "Voltage",
+    "unit": "V",
+    "nominal": 110,
+    "green_max": 110,
+    "red_above": 121,
+    "red_below": null,
+    "note": "Red above 110 V + 10%. Ask Abolfazl whether low voltage (e.g. below 99 V) should also be red."
+  },
+  "current": {
+    "label": "Current",
+    "unit": "A",
+    "nominal": 10,
+    "green_max": 9,
+    "red_above": 11,
+    "red_below": null,
+    "note": "Green below 10 A - 10%, red above 10 A + 10%, yellow in between."
+  },
+  "temperature": {
+    "label": "Temperature",
+    "unit": "°C",
+    "nominal": 60,
+    "green_max": 60,
+    "red_above": 66,
+    "red_below": null,
+    "overheat_alert": true,
+    "note": "PLACEHOLDER - get the real operating temperature and overheat limit from Abolfazl."
+  }
+}

@@ -1,96 +1,78 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import { api } from "./api";
+import DeviceList from "./components/DeviceList";
+import DeviceDetail from "./components/DeviceDetail";
 
-const API_URL = "http://localhost:8000";
-
-async function fetchData(path, signal) {
-  const response = await fetch(`${API_URL}${path}`, {
-    headers: {
-      "X-API-Key": "dev-key",
-    },
-    signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Request failed (${response.status}).`);
-  }
-
-  return response.json();
+// The open device is kept in the URL (?device=dev-01) so reload and the
+// browser's back button work.
+function deviceFromUrl() {
+  return new URLSearchParams(window.location.search).get("device");
 }
 
 export default function App() {
   const [devices, setDevices] = useState([]);
-  const [selectedDevice, setSelectedDevice] = useState(null);
-  const [reading, setReading] = useState(null);
+  const [limits, setLimits] = useState(null);
+  const [mode, setMode] = useState(null);
+  const [deviceId, setDeviceId] = useState(deviceFromUrl);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [refreshCount, setRefreshCount] = useState(0);
 
-  const deviceId = selectedDevice?.id;
+  function reloadDevices() {
+    api.devices().then(setDevices).catch((err) => setError(err.message));
+  }
 
   useEffect(() => {
     const controller = new AbortController();
-
-    async function loadData() {
-      setLoading(true);
-      setError("");
-      setReading(null);
-
-      try {
-        if (deviceId) {
-          const data = await fetchData(
-            `/devices/${encodeURIComponent(deviceId)}/latest`,
-            controller.signal,
-          );
-          setReading(data);
-        } else {
-          const data = await fetchData("/devices", controller.signal);
-          setDevices(data);
-        }
-      } catch (err) {
-        if (!controller.signal.aborted) {
-          setError(`${err.message} Check that the API is running on port 8000.`);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadData();
-
+    const { signal } = controller;
+    Promise.all([api.health(signal), api.limits(signal), api.devices(signal)])
+      .then(([health, lim, list]) => {
+        setMode(health.mode);
+        setLimits(lim);
+        setDevices(list);
+      })
+      .catch((err) => !signal.aborted && setError(err.message))
+      .finally(() => !signal.aborted && setLoading(false));
     return () => controller.abort();
-  }, [deviceId, refreshCount]);
+  }, []);
 
-  function openDevice(device) {
-    setReading(null);
-    setError("");
-    setLoading(true);
-    setSelectedDevice(device);
+  useEffect(() => {
+    const onPop = () => setDeviceId(deviceFromUrl());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  function openDevice(id) {
+    window.history.pushState(null, "", id ? `?device=${encodeURIComponent(id)}` : window.location.pathname);
+    setDeviceId(id);
   }
 
-  function showDeviceList() {
-    setError("");
-    setLoading(true);
-    setSelectedDevice(null);
-  }
-
-  function formatValue(value, unit) {
-    return value == null ? "No data" : `${value} ${unit}`;
-  }
+  const device = devices.find((d) => d.id === deviceId);
 
   return (
     <main className="dashboard">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">IPEM LAB · MOCK DATA</p>
-          <h1>{selectedDevice ? selectedDevice.name : "Devices"}</h1>
-          <p>
-            {selectedDevice
-              ? `Device ID: ${selectedDevice.id} · MAC: ${selectedDevice.mac}`
-              : "Select a device to view its latest measurements."}
-          </p>
-        </div>
+      <p className="eyebrow">
+        IPEM LAB
+        {mode && <span className={`mode-badge mode-${mode}`}>{mode === "mock" ? "MOCK DATA" : "LIVE DATA"}</span>}
+      </p>
 
-        <button
+      {loading && <p role="status">Loading…</p>}
+      {error && <p className="error" role="alert">{error}</p>}
+
+      {!loading && !error && !deviceId && (
+        <DeviceList devices={devices} onOpen={openDevice} onChanged={reloadDevices} />
+      )}
+
+      {!loading && !error && deviceId && !device && (
+        <>
+          <button className="back-button" onClick={() => openDevice(null)}>← All devices</button>
+          <p className="error" role="alert">Device “{deviceId}” not found.</p>
+        </>
+      )}
+
+      {!loading && !error && device && (
+        <DeviceDetail key={device.id} device={device} limits={limits} onBack={() => openDevice(null)} />
+      )}
+    </main>
+  );
+}
