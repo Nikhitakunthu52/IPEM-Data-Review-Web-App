@@ -22,8 +22,8 @@ Interactive docs are at http://localhost:8000/docs. Every endpoint except `/heal
 | GET | `/devices` | List of devices: `[{ "id", "name", "mac" }]` |
 | POST | `/devices` | Add a device. Body: `{ "name": "EMU bench 1", "mac": "10:20:ba:51:dd:84" }` |
 | DELETE | `/devices/{id}` | Remove a device |
-| GET | `/devices/{id}/latest` | Most recent reading plus its zone colours |
-| GET | `/devices/{id}/history?range=1d` | Averaged readings for a chart |
+| GET | `/devices/{id}/latest` | Most recent reading (nine metrics), its zone colours and units |
+| GET | `/devices/{id}/history?range=1d` | Averaged readings (nine metrics) for a chart, plus units |
 
 ### Time ranges
 
@@ -40,12 +40,45 @@ Raw data arrives at about 15 samples per second, so each point is an average ove
 
 The MAC address can be typed as `10:20:BA:51:DD:84`, `10-20-ba-51-dd-84` or `1020ba51dd84`. The API stores it as `10:20:ba:51:dd:84`, lowercase and with colons, because that is how the lab tags data in InfluxDB (`location` tag). It then gives the device the next free id (e.g. `dev-06`). Devices are saved in `devices.json`. Adding a MAC that already exists returns `409`.
 
+### Metrics
+
+Every reading and history point has the same nine numbers, already scaled to display values, so the frontend never applies divisors. Any value can be `null` when a device did not report it. Responses also carry a `units` object with the same keys. An empty string means the lab dashboards show a plain number for that value.
+
+| Field | Unit | Notes |
+| --- | --- | --- |
+| `voltage` | V | RMS voltage |
+| `current` | A | RMS current |
+| `thd` | none | Voltage THD (`Volt_THD`), the plain number the dashboard shows |
+| `temperature` | °C | |
+| `power` | none | Plain number, as on the SmartPP dashboard |
+| `apparent_power` | none | Plain number, as on the SmartPP dashboard |
+| `reactive_power` | none | Plain number, can be negative |
+| `power_factor` | none | Plain number, as on the SmartPP dashboard |
+| `energy` | none | Cumulative counter. Consumption between two times = later value minus earlier value. History returns the last value in each window |
+
+Zones (`zones`) are only returned for measurements that have an entry in `limits.json` (voltage, current, temperature).
+
 ### Example: `/devices/dev-01/latest`
 
 ```json
 { "device_id": "dev-01", "time": "2026-10-17T23:50:00Z",
-  "voltage": 112.4, "current": 9.8, "temperature": 52.1,
-  "zones": { "voltage": "yellow", "current": "yellow", "temperature": "green" } }
+  "voltage": 120.9, "current": 0.17, "thd": 22.0, "temperature": 47.7,
+  "power": 0.0, "apparent_power": 116.0, "reactive_power": -116.0,
+  "power_factor": 46.0, "energy": 13755.0,
+  "zones": { "voltage": "yellow", "current": "green", "temperature": "green" },
+  "units": { "voltage": "V", "current": "A", "thd": "", "temperature": "\u00b0C",
+             "power": "", "apparent_power": "", "reactive_power": "",
+             "power_factor": "", "energy": "" } }
+```
+
+### Example: `/devices/dev-01/history?range=1d`
+
+```json
+{ "device_id": "dev-01", "range": "1d", "window": "5m",
+  "units": { "voltage": "V", "...": "..." },
+  "points": [ { "time": "...", "voltage": 120.9, "current": 0.17, "thd": 22.0,
+                "temperature": 47.7, "power": 0.0, "apparent_power": 116.0,
+                "reactive_power": -116.0, "power_factor": 46.0, "energy": 13755.0 } ] }
 ```
 
 ## Zone limits (`limits.json`)
@@ -68,9 +101,22 @@ Copy `.env.example` to `.env`, set `DATA_MODE=influx`, and fill in `INFLUX_URL`,
 | --- | --- | --- |
 | `INFLUX_DB` / `INFLUX_MEASUREMENT` | `SP_Features` / `Features_v2` | Where voltage and current live |
 | `FIELD_VOLTAGE` / `FIELD_CURRENT` | `VF_RMS` / `IF_RMS` | RMS voltage and current fields |
+| `INFLUX_WAVEFORM_DB` | `waveform` | Everything else lives here, in field `value` |
 | `INFLUX_MAC_TAG` | `location` | Tag that holds the device MAC |
-| `INFLUX_TEMP_DB` | `waveform` | Temperature is in its own database |
-| `INFLUX_TEMP_DIVISOR` | `10` | Temperature is stored ×10 |
+
+The waveform measurements and their divisors come from the lab's SmartPP Measurement and SmartPlug_Features dashboard queries. They are defined in the `METRICS` table at the top of `data.py`:
+
+| Metric | Measurement | Divisor |
+| --- | --- | --- |
+| `thd` | `Volt_THD` | none |
+| `temperature` | `temperature` | ÷10 |
+| `power` | `Power` | ÷10 |
+| `apparent_power` | `Apparent_Power` | ÷10 |
+| `reactive_power` | `Reactive_Power` | ÷10 |
+| `power_factor` | `Power_Factor` | none |
+| `energy` | `Power_Energy_Acc` | none |
+
+Each request runs one query per measurement (eight in total), in parallel. If one fails, only that metric comes back `null`.
 
 Queries use InfluxQL, for example:
 ```sql

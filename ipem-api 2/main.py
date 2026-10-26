@@ -107,7 +107,7 @@ def latest(device_id: str):
     reading = source.latest(device)
     if reading is None:
         raise HTTPException(status_code=404, detail="No data from this device in the last 5 minutes")
-    return {"device_id": device["id"], **with_zones(reading)}
+    return {"device_id": device["id"], **with_zones(reading), "units": data.UNITS}
 
 
 @app.get("/devices/{device_id}/history", dependencies=[Depends(require_key)])
@@ -124,5 +124,6 @@ def history(
         "device_id": device["id"],
         "range": range,
         "window": window,
+        "units": data.UNITS,
         "points": source.history(device, range, window),
     }
