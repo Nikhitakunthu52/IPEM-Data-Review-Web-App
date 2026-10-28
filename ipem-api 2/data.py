@@ -48,18 +48,42 @@ METRICS = {
 }
 UNITS = {name: m["unit"] for name, m in METRICS.items()}
 
-# Time ranges the user can pick: 1 day, 3 days, 1 week, 1 month.
-# The keys are also valid InfluxQL durations (now() - 30d).
-RANGES = {"1d": 86400, "3d": 3 * 86400, "7d": 7 * 86400, "30d": 30 * 86400}
+# Time ranges. The chart can show any span from 1 minute to 30 days: pick one of the
+# presets below or send your own number and unit (e.g. "90m", "2h", "10d").
+# Units: m = minutes, h = hours, d = days. The keys are valid InfluxQL durations.
+RANGE_PRESETS = ["5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d", "3d", "7d", "30d"]
+UNIT_SECONDS = {"m": 60, "h": 3600, "d": 86400}
+MIN_RANGE_SECONDS = 60
+MAX_RANGE_SECONDS = 30 * 86400
+RANGE_RE = re.compile(r"^([1-9]\d{0,4})([mhd])$")
 
-# Averaging window per range. Keeps every chart at roughly 290-360 points
-# instead of ~15 raw samples per second (1.3 million points per day).
-DEFAULT_WINDOW = {"1d": "5m", "3d": "15m", "7d": "30m", "30d": "2h"}
+
+def parse_range(text: str) -> int:
+    """'90m' -> 5400. Raises ValueError for anything that is not a valid range."""
+    m = RANGE_RE.match((text or "").strip().lower())
+    if not m:
+        raise ValueError("Range must be a whole number plus m, h or d, e.g. 30m, 12h, 7d")
+    seconds = int(m.group(1)) * UNIT_SECONDS[m.group(2)]
+    if not MIN_RANGE_SECONDS <= seconds <= MAX_RANGE_SECONDS:
+        raise ValueError("Range must be between 1m and 30d")
+    return seconds
+
+
+# Averaging windows. Raw data arrives at about 15 samples per second.
 WINDOW_SECONDS = {
-    "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
-    "1h": 3600, "2h": 7200, "6h": 21600,
+    "1s": 1, "5s": 5, "10s": 10, "30s": 30, "1m": 60, "2m": 120, "5m": 300,
+    "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200, "6h": 21600,
 }
+TARGET_POINTS = 360   # aim for charts of at most about this many points
 MAX_POINTS = 2000
+
+
+def default_window(range_seconds: int) -> str:
+    """Smallest window that keeps the chart at or under TARGET_POINTS points."""
+    for name, step in sorted(WINDOW_SECONDS.items(), key=lambda kv: kv[1]):
+        if range_seconds // step <= TARGET_POINTS:
+            return name
+    return "6h"
 
 
 # ---------------------------------------------------------------- devices --
@@ -149,7 +173,7 @@ class MockSource:
     def history(self, device, range_: str, window: str):
         end = datetime.now(timezone.utc)
         step = WINDOW_SECONDS[window]
-        n = RANGES[range_] // step
+        n = parse_range(range_) // step
         return [self._reading(device, end - timedelta(seconds=step * i)) for i in range(n, -1, -1)]
 
 
@@ -193,7 +217,7 @@ class InfluxSource:
 
     def _where(self, device, start: str) -> str:
         # Only ever called with a MAC from the device registry and a range key
-        # from RANGES, both checked here so nothing odd reaches the query.
+        # from parse_range(), both checked here so nothing odd reaches the query.
         mac = device["mac"]
         if not MAC_RE.match(mac):
             raise ValueError(f"Invalid MAC in registry: {mac!r}")

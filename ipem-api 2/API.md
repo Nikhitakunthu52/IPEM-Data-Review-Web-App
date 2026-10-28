@@ -23,18 +23,29 @@ Interactive docs are at http://localhost:8000/docs. Every endpoint except `/heal
 | POST | `/devices` | Add a device. Body: `{ "name": "EMU bench 1", "mac": "10:20:ba:51:dd:84" }` |
 | DELETE | `/devices/{id}` | Remove a device |
 | GET | `/devices/{id}/latest` | Most recent reading (nine metrics), its zone colours and units |
-| GET | `/devices/{id}/history?range=1d` | Averaged readings (nine metrics) for a chart, plus units |
+| GET | `/devices/{id}/history?range=1d` | Averaged readings (nine metrics) for a chart, plus units. `range` is how far back the chart goes |
 
 ### Time ranges
 
-| `range` | Meaning | Default window | Points |
-| --- | --- | --- | --- |
-| `1d` | 1 day | 5 min | about 290 |
-| `3d` | 3 days | 15 min | about 290 |
-| `7d` | 1 week | 30 min | about 340 |
-| `30d` | 1 month | 2 h | about 360 |
+`range` is how far back the chart goes. Send a whole number plus a unit: `m` (minutes), `h` (hours) or `d` (days). Presets: `5m`, `15m`, `30m`, `1h`, `3h`, `6h`, `12h`, `1d`, `3d`, `7d` (1 week), `30d` (1 month). Users can also type their own, such as `90m`, `2h` or `10d`, from `1m` up to `30d`. Anything else returns `422` with a message.
 
-Raw data arrives at about 15 samples per second, so each point is an average over its window.
+Raw data arrives at about 15 samples per second, so each point is an average over a window. When `window` is left out, the API picks the smallest window that keeps the chart to 360 points or fewer:
+
+| `range` | Default window | Points |
+| --- | --- | --- |
+| `5m` | 1 s | 300 |
+| `15m` | 5 s | 180 |
+| `30m` | 5 s | 360 |
+| `1h` | 10 s | 360 |
+| `3h` | 30 s | 360 |
+| `6h` | 1 m | 360 |
+| `12h` | 2 m | 360 |
+| `1d` | 5 m | 288 |
+| `3d` | 15 m | 288 |
+| `7d` | 30 m | 336 |
+| `30d` | 2 h | 360 |
+
+`window` can be one of `1s`, `5s`, `10s`, `30s`, `1m`, `2m`, `5m`, `15m`, `30m`, `1h`, `2h`, `6h`. A range and window that would give more than 2000 points return `400`.
 
 ### Adding a device
 
@@ -85,13 +96,11 @@ Zones (`zones`) are only returned for measurements that have an entry in `limits
 
 | Measurement | Green | Yellow | Red |
 | --- | --- | --- | --- |
-| Voltage (110 V) | up to 110 V | 110–121 V | above 121 V |
+| Voltage (110 V ±10%) | 104–116 V | 99–104 V and 116–121 V | below 99 V or above 121 V |
 | Current (10 A) | below 9 A | 9–11 A | above 11 A |
-| Temperature | **placeholder:** up to 60 °C | 60–66 °C | above 66 °C |
+| Temperature | up to 60 °C | 60–66 °C | above 66 °C |
 
-Edit `limits.json` to change a limit. There is no need to touch the code. `red_below` and `green_min` are also supported if low values should count as red or yellow.
-
-**Still open:** the real temperature limit, and whether low voltage should be red.
+Edit `limits.json` to change a limit. There is no need to touch the code. `green_min` and `red_below` handle low values, `green_max` and `red_above` handle high ones. Yellow is whatever lies between a green limit and its red limit.
 
 ## Switching to real data (InfluxDB 1.8)
 

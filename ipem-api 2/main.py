@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 import data  # noqa: E402
-from data import DEFAULT_WINDOW, MAX_POINTS, RANGES, WINDOW_SECONDS  # noqa: E402
+from data import MAX_POINTS, WINDOW_SECONDS, default_window, parse_range  # noqa: E402
 
 API_KEY = os.getenv("API_KEY", "dev-key")
 
@@ -30,8 +30,7 @@ app.add_middleware(
 
 source = data.get_source()
 
-RangeName = Literal["1d", "3d", "7d", "30d"]
-WindowName = Literal["1m", "5m", "15m", "30m", "1h", "2h", "6h"]
+WindowName = Literal["1s", "5s", "10s", "30s", "1m", "2m", "5m", "15m", "30m", "1h", "2h", "6h"]
 
 
 def require_key(x_api_key: str = Header(..., description="Shared API key")):
@@ -113,12 +112,17 @@ def latest(device_id: str):
 @app.get("/devices/{device_id}/history", dependencies=[Depends(require_key)])
 def history(
     device_id: str,
-    range: RangeName = Query("1d", description="1d, 3d, 7d (1 week) or 30d (1 month)"),
+    range: str = Query("1d", description="How far back: a number plus m, h or d, e.g. 5m, 12h, 7d, 90m (1m to 30d)"),
     window: Optional[WindowName] = Query(None, description="Averaging window; picked automatically if empty"),
 ):
     device = find_device(device_id)
-    window = window or DEFAULT_WINDOW[range]
-    if RANGES[range] // WINDOW_SECONDS[window] > MAX_POINTS:
+    try:
+        seconds = parse_range(range)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    range = range.strip().lower()
+    window = window or data.default_window(seconds)
+    if seconds // WINDOW_SECONDS[window] > MAX_POINTS:
         raise HTTPException(status_code=400, detail=f"Window too small for this range (max {MAX_POINTS} points)")
     return {
         "device_id": device["id"],
