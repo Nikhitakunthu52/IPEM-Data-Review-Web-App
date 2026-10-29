@@ -3,10 +3,11 @@
     "label": "Voltage",
     "unit": "V",
     "nominal": 110,
-    "green_max": 110,
+    "green_max": 116,
     "red_above": 121,
-    "red_below": null,
-    "note": "Red above 110 V + 10%. Ask Abolfazl whether low voltage (e.g. below 99 V) should also be red."
+    "red_below": 99,
+    "note": "110 V +/- 10%: red below 99 V or above 121 V. Yellow within 5 V of those limits (99-104 V and 116-121 V), green 104-116 V.",
+    "green_min": 104
   },
   "current": {
     "label": "Current",
@@ -25,6 +26,6 @@
     "red_above": 66,
     "red_below": null,
     "overheat_alert": true,
-    "note": "PLACEHOLDER - get the real operating temperature and overheat limit from Abolfazl."
+    "note": "Green up to 60 C, yellow above 60 C, red above 66 C (overheat limit confirmed by the lab)."
   }
 }
