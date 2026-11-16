@@ -47,9 +47,20 @@ body {
   letter-spacing: 1px;
 }
 
-.mode-mock { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
-.mode-influx { background: rgba(52, 211, 153, 0.15); color: var(--green); }
-.mode-demo { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+.mode-mock {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--yellow);
+}
+
+.mode-influx {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--green);
+}
+
+.mode-demo {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
 
 .demo-note {
   margin: 0 0 24px;
@@ -66,14 +77,23 @@ h1 {
   font-size: 32px;
 }
 
-h2, h3 {
+h2,
+h3 {
   margin-top: 0;
 }
 
-.muted { color: var(--muted); }
-.small { font-size: 13px; margin: 12px 0 0; }
+.muted {
+  color: var(--muted);
+}
 
-button, select, input {
+.small {
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
+button,
+select,
+input {
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -82,14 +102,19 @@ button, select, input {
   font: inherit;
 }
 
-button { cursor: pointer; padding: 12px 18px; }
+button {
+  cursor: pointer;
+  padding: 12px 18px;
+}
 
 button:hover {
   border-color: var(--accent);
   background: rgba(192, 132, 252, 0.15);
 }
 
-button:focus-visible, select:focus-visible, input:focus-visible {
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
@@ -123,7 +148,10 @@ button:disabled {
   gap: 20px;
 }
 
-.device-card, .metric-card, .chart-card, .add-device {
+.device-card,
+.metric-card,
+.chart-card,
+.add-device {
   min-width: 0;
   padding: 24px;
   border: 1px solid var(--border);
@@ -139,7 +167,9 @@ button:disabled {
   background: rgba(192, 132, 252, 0.15);
 }
 
-.device-card p { color: var(--muted); }
+.device-card p {
+  color: var(--muted);
+}
 
 .device-card span {
   display: block;
@@ -148,7 +178,8 @@ button:disabled {
   font-weight: 600;
 }
 
-/* ---- Add device form ---- */
+/* Add device form */
+
 .add-device {
   display: grid;
   gap: 16px;
@@ -163,14 +194,33 @@ button:disabled {
   font-size: 14px;
 }
 
-.add-device h2 { margin: 0; font-size: 18px; }
-.add-device button { justify-self: start; }
+.add-device h2 {
+  margin: 0;
+  font-size: 18px;
+}
 
-/* ---- Reading cards and zones ---- */
-.metric-card { border-left-width: 4px; }
-.metric-card.zone-green { border-left-color: var(--green); }
-.metric-card.zone-yellow { border-left-color: var(--yellow); }
-.metric-card.zone-red { border-left-color: var(--red); background: rgba(248, 113, 113, 0.08); }
+.add-device button {
+  justify-self: start;
+}
+
+/* Reading cards and zones */
+
+.metric-card {
+  border-left-width: 4px;
+}
+
+.metric-card.zone-green {
+  border-left-color: var(--green);
+}
+
+.metric-card.zone-yellow {
+  border-left-color: var(--yellow);
+}
+
+.metric-card.zone-red {
+  border-left-color: var(--red);
+  background: rgba(248, 113, 113, 0.08);
+}
 
 .metric-head {
   display: flex;
@@ -191,9 +241,17 @@ button:disabled {
   font-weight: 700;
 }
 
-.metric-card.zone-green .metric-value { color: var(--green); }
-.metric-card.zone-yellow .metric-value { color: var(--yellow); }
-.metric-card.zone-red .metric-value { color: var(--red); }
+.metric-card.zone-green .metric-value {
+  color: var(--green);
+}
+
+.metric-card.zone-yellow .metric-value {
+  color: var(--yellow);
+}
+
+.metric-card.zone-red .metric-value {
+  color: var(--red);
+}
 
 .metric-limit {
   margin: 8px 0 0;
@@ -208,9 +266,20 @@ button:disabled {
   font-weight: 600;
 }
 
-.zone-pill.zone-green { background: rgba(52, 211, 153, 0.15); color: var(--green); }
-.zone-pill.zone-yellow { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
-.zone-pill.zone-red { background: rgba(248, 113, 113, 0.18); color: var(--red); }
+.zone-pill.zone-green {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--green);
+}
+
+.zone-pill.zone-yellow {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--yellow);
+}
+
+.zone-pill.zone-red {
+  background: rgba(248, 113, 113, 0.18);
+  color: var(--red);
+}
 
 .alert-banner {
   padding: 16px;
@@ -238,7 +307,8 @@ button:disabled {
   font-size: 12px;
 }
 
-/* ---- History chart ---- */
+/* History chart */
+
 .section-head {
   display: flex;
   justify-content: space-between;
@@ -248,7 +318,9 @@ button:disabled {
   flex-wrap: wrap;
 }
 
-.section-title { margin: 0; }
+.section-title {
+  margin: 0;
+}
 
 .series-picker {
   display: flex;
@@ -280,7 +352,9 @@ button:disabled {
   padding: 0;
 }
 
-.chart-area { position: relative; }
+.chart-area {
+  position: relative;
+}
 
 .chart-empty {
   position: absolute;
@@ -299,6 +373,49 @@ button:disabled {
   border-radius: 8px;
   background: #3b1d29;
   color: #fecdd3;
+}
+
+/* Custom history range */
+
+.custom-range {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.custom-range input {
+  width: 110px;
+}
+
+.custom-range select {
+  min-width: 130px;
+}
+
+.custom-range .range-apply {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+
+.custom-range .range-apply:hover {
+  background: #d8b4fe;
+}
+
+.range-help {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+}
+
+.range-status {
+  margin: 0 0 12px;
 }
 
 @media (max-width: 600px) {

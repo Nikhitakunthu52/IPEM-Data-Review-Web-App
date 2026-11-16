@@ -1,42 +1,101 @@
 import { useState } from "react";
 import {
-  CartesianGrid, Legend, Line, LineChart, ReferenceLine,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
-import { SERIES } from "../settings";
+import { SERIES, rangeToSeconds } from "../settings";
 
-// The plot starts empty; the user ticks which measurements to draw on it.
-// Each measurement gets its own y-axis because the units differ (V, A, °C).
+// Each measurement gets its own y-axis because the units differ.
 export default function HistoryChart({ history, limits, range }) {
   const [selected, setSelected] = useState([]);
 
   function toggle(key) {
-    setSelected((s) => (s.includes(key) ? s.filter((k) => k !== key) : [...s, key]));
+    setSelected((current) =>
+      current.includes(key)
+        ? current.filter((item) => item !== key)
+        : [...current, key],
+    );
   }
 
-  const points = (history?.points ?? []).map((p) => ({ ...p, t: new Date(p.time).getTime() }));
-  const shown = SERIES.filter((s) => selected.includes(s.key));
-  const short = range === "1d";
-  const formatTime = (t) =>
-    new Date(t).toLocaleString([], short ? { hour: "numeric", minute: "2-digit" } : { month: "short", day: "numeric" });
+  const points = (history?.points ?? [])
+    .map((point) => ({
+      ...point,
+      t: new Date(point.time).getTime(),
+    }))
+    .filter((point) => Number.isFinite(point.t));
+
+  const shown = SERIES.filter((series) =>
+    selected.includes(series.key),
+  );
+
+  // Up to 24 hours: 10:35. Longer ranges: Oct 21.
+  const short = rangeToSeconds(range) <= 86400;
+
+  function formatTime(time) {
+    const date = new Date(time);
+
+    if (short) {
+      return date.toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+    }
+
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+  }
 
   return (
     <article className="chart-card">
       <fieldset className="series-picker">
         <legend>Show on plot</legend>
-        {SERIES.map((s) => (
-          <label key={s.key} style={{ "--series": s.color }}>
-            <input type="checkbox" checked={selected.includes(s.key)} onChange={() => toggle(s.key)} />
-            {limits?.[s.key]?.label ?? s.key} ({limits?.[s.key]?.unit})
+
+        {SERIES.map((series) => (
+          <label
+            key={series.key}
+            style={{ "--series": series.color }}
+          >
+            <input
+              type="checkbox"
+              checked={selected.includes(series.key)}
+              onChange={() => toggle(series.key)}
+            />
+            {limits?.[series.key]?.label ?? series.key}
+            {limits?.[series.key]?.unit
+              ? ` (${limits[series.key].unit})`
+              : ""}
           </label>
         ))}
       </fieldset>
 
       <div className="chart-area">
-        {shown.length === 0 && <div className="chart-empty">Select data above to plot it</div>}
+        {shown.length === 0 ? (
+          <div className="chart-empty">
+            Select data above to plot it
+          </div>
+        ) : points.length === 0 ? (
+          <div className="chart-empty">
+            No history data to display
+          </div>
+        ) : null}
+
         <ResponsiveContainer width="100%" height={360}>
-          <LineChart data={points} margin={{ top: 16, right: 8, bottom: 8, left: 8 }}>
+          <LineChart
+            data={points}
+            margin={{ top: 16, right: 8, bottom: 8, left: 8 }}
+          >
             <CartesianGrid stroke="#2e303a" vertical={false} />
+
             <XAxis
               dataKey="t"
               type="number"
@@ -47,57 +106,86 @@ export default function HistoryChart({ history, limits, range }) {
               tick={{ fontSize: 12 }}
               minTickGap={40}
             />
-            {shown.length === 0 && <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} domain={[0, 1]} tickCount={2} />}
-            {shown.map((s, i) => (
+
+            {shown.length === 0 && (
               <YAxis
-                key={s.key}
-                yAxisId={s.key}
-                orientation={i === 0 ? "left" : "right"}
-                stroke={s.color}
+                stroke="#9ca3af"
+                tick={{ fontSize: 12 }}
+                domain={[0, 1]}
+                tickCount={2}
+              />
+            )}
+
+            {shown.map((series, index) => (
+              <YAxis
+                key={series.key}
+                yAxisId={series.key}
+                orientation={index === 0 ? "left" : "right"}
+                stroke={series.color}
                 tick={{ fontSize: 12 }}
                 width={48}
                 domain={["auto", "auto"]}
-                unit={` ${limits?.[s.key]?.unit ?? ""}`}
+                unit={` ${limits?.[series.key]?.unit ?? ""}`}
               />
             ))}
+
             {shown.length > 0 && (
               <Tooltip
-                labelFormatter={(t) => new Date(t).toLocaleString()}
-                formatter={(v, name, item) => [`${Number(v).toFixed(2)} ${limits?.[item.dataKey]?.unit ?? ""}`, name]}
-                contentStyle={{ background: "#1f2028", border: "1px solid #2e303a", borderRadius: 8 }}
+                labelFormatter={(time) =>
+                  new Date(time).toLocaleString()
+                }
+                formatter={(value, name, item) => [
+                  `${Number(value).toFixed(2)} ${
+                    limits?.[item.dataKey]?.unit ?? ""
+                  }`,
+                  name,
+                ]}
+                contentStyle={{
+                  background: "#1f2028",
+                  border: "1px solid #2e303a",
+                  borderRadius: 8,
+                }}
               />
             )}
+
             {shown.length > 0 && <Legend />}
-            {shown.map((s) => (
+
+            {shown.map((series) => (
               <Line
-                key={s.key}
-                yAxisId={s.key}
-                dataKey={s.key}
-                name={limits?.[s.key]?.label ?? s.key}
-                stroke={s.color}
+                key={series.key}
+                yAxisId={series.key}
+                dataKey={series.key}
+                name={limits?.[series.key]?.label ?? series.key}
+                stroke={series.color}
                 dot={false}
                 strokeWidth={2}
                 isAnimationActive={false}
                 connectNulls
               />
             ))}
-            {/* Dashed line at each shown measurement's red limit */}
-            {shown.map((s) =>
-              limits?.[s.key]?.red_above != null ? (
+
+            {shown.map((series) =>
+              limits?.[series.key]?.red_above != null ? (
                 <ReferenceLine
-                  key={`limit-${s.key}`}
-                  yAxisId={s.key}
-                  y={limits[s.key].red_above}
+                  key={`limit-${series.key}`}
+                  yAxisId={series.key}
+                  y={limits[series.key].red_above}
                   stroke="#f87171"
                   strokeDasharray="6 4"
                   ifOverflow="extendDomain"
-                  label={{ value: `${limits[s.key].label} limit`, fill: "#f87171", fontSize: 11, position: "insideTopLeft" }}
+                  label={{
+                    value: `${limits[series.key].label} limit`,
+                    fill: "#f87171",
+                    fontSize: 11,
+                    position: "insideTopLeft",
+                  }}
                 />
               ) : null,
             )}
           </LineChart>
         </ResponsiveContainer>
       </div>
+
       {history && (
         <p className="muted small">
           {points.length} points · each is a {history.window} average
