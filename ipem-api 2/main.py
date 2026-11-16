@@ -1,6 +1,7 @@
 """IPEM Lab Data API.
 
-Run:  .venv/bin/python -m uvicorn main:app --reload
+Run (with the virtual environment active):  python -m uvicorn main:app --reload
+Setup steps for Windows and macOS are in API.md.
 Docs: http://localhost:8000/docs
 """
 import os
@@ -20,7 +21,7 @@ from data import MAX_POINTS, WINDOW_SECONDS, default_window, parse_range  # noqa
 
 API_KEY = os.getenv("API_KEY", "dev-key")
 
-app = FastAPI(title="IPEM Lab Data API", version="0.2.0")
+app = FastAPI(title="IPEM Lab Data API", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),

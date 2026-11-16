@@ -1,6 +1,19 @@
 # IPEM Lab Data API (v0.3)
 
-## Run it locally (macOS)
+## Run it locally
+
+### Windows (PowerShell)
+
+```powershell
+cd "ipem-api 2"
+py -m venv .venv                                     # once
+.venv\Scripts\python -m pip install -r requirements.txt   # once
+.venv\Scripts\python -m uvicorn main:app --reload
+```
+
+To test from PowerShell, use `curl.exe` (not `curl`) and quote URLs that contain `?`, e.g. `curl.exe -H "X-API-Key: dev-key" "http://localhost:8000/devices/dev-01/history?range=1h"`.
+
+### macOS
 
 ```bash
 cd "ipem-api 2"
