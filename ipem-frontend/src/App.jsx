@@ -3,6 +3,7 @@ import "./App.css";
 import { api } from "./api";
 import DeviceList from "./components/DeviceList";
 import DeviceDetail from "./components/DeviceDetail";
+import ZoneAlerts from "./components/ZoneAlerts";
 
 const MODE_LABEL = { mock: "MOCK DATA", demo: "DEMO DATA", influx: "LIVE DATA" };
 
@@ -63,6 +64,8 @@ export default function App() {
           Demo version: readings are simulated in your browser, and devices you add are saved only on this computer.
         </p>
       )}
+
+      {!loading && !error && <ZoneAlerts devices={devices} limits={limits} onOpen={openDevice} />}
 
       {loading && <p role="status">Loading…</p>}
       {error && <p className="error" role="alert">{error}</p>}
