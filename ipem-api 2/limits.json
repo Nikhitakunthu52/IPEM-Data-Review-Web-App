@@ -23,9 +23,9 @@
     "unit": "°C",
     "nominal": 60,
     "green_max": 60,
-    "red_above": 66,
+    "red_above": 70,
     "red_below": null,
     "overheat_alert": true,
-    "note": "Green up to 60 C, yellow above 60 C, red above 66 C (overheat limit confirmed by the lab)."
+    "note": "Green up to 60 C, yellow above 60 C, red above 70 C (overheat limit confirmed by the lab)."
   }
 }

@@ -64,7 +64,7 @@ Every reading and history point has the same nine numbers, already scaled to dis
 | `power` | none | Plain number, as on the SmartPP dashboard |
 | `apparent_power` | none | Plain number, as on the SmartPP dashboard |
 | `reactive_power` | none | Plain number, can be negative |
-| `power_factor` | none | Plain number, as on the SmartPP dashboard |
+| `power_factor` | none | Plain number, as on the SmartPP dashboard. The device sends `-1000` or `1000` when it has no reading (for example when nothing is plugged in); the API returns `null` for those, so the app should show "no data". In history, those readings are left out of the averages |
 | `energy` | none | Cumulative counter. Consumption between two times = later value minus earlier value. History returns the last value in each window |
 
 Zones (`zones`) are only returned for measurements that have an entry in `limits.json` (voltage, current, temperature).
@@ -98,7 +98,7 @@ Zones (`zones`) are only returned for measurements that have an entry in `limits
 | --- | --- | --- | --- |
 | Voltage (110 V ±10%) | 104–116 V | 99–104 V and 116–121 V | below 99 V or above 121 V |
 | Current (10 A) | below 9 A | 9–11 A | above 11 A |
-| Temperature | up to 60 °C | 60–66 °C | above 66 °C |
+| Temperature | up to 60 °C | 60–70 °C | above 70 °C |
 
 Edit `limits.json` to change a limit. There is no need to touch the code. `green_min` and `red_below` handle low values, `green_max` and `red_above` handle high ones. Yellow is whatever lies between a green limit and its red limit.
 

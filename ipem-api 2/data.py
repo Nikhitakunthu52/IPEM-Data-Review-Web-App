@@ -31,6 +31,10 @@ WAVEFORM_DB = os.getenv("INFLUX_WAVEFORM_DB", "waveform")
 #   divisor: the "value"/N in the SmartPP and SmartPlug_Features dashboard queries
 #   unit:    "" means the dashboard shows a plain number (Grafana unit "short")
 #   agg:     how history windows combine raw points ("last" for cumulative counters)
+#   no_data: optional raw values the device sends when it has no reading (power factor
+#            sends -1000 or 1000 when nothing is being drawn). They become null in the API
+#            and are left out of history averages. Only set it on a metric that has its own
+#            measurement, because the filter applies to the whole query.
 METRICS = {
     # Features_v2 is stored in real units already.
     "voltage": dict(db=FEATURES_DB, measurement=FEATURES_MEASUREMENT,
@@ -43,10 +47,16 @@ METRICS = {
     "power": dict(db=WAVEFORM_DB, measurement="Power", field="value", divisor=10, unit="", agg="mean"),
     "apparent_power": dict(db=WAVEFORM_DB, measurement="Apparent_Power", field="value", divisor=10, unit="", agg="mean"),
     "reactive_power": dict(db=WAVEFORM_DB, measurement="Reactive_Power", field="value", divisor=10, unit="", agg="mean"),
-    "power_factor": dict(db=WAVEFORM_DB, measurement="Power_Factor", field="value", divisor=1, unit="", agg="mean"),
+    "power_factor": dict(db=WAVEFORM_DB, measurement="Power_Factor", field="value", divisor=1, unit="", agg="mean",
+                         no_data=(-1000, 1000)),
     "energy": dict(db=WAVEFORM_DB, measurement="Power_Energy_Acc", field="value", divisor=1, unit="", agg="last"),
 }
 UNITS = {name: m["unit"] for name, m in METRICS.items()}
+
+
+def _no_data(name: str) -> tuple:
+    """Raw values that mean 'no reading' for this metric (empty for most metrics)."""
+    return tuple(METRICS[name].get("no_data", ()))
 
 # Time ranges. The chart can show any span from 1 minute to 30 days: pick one of the
 # presets below or send your own number and unit (e.g. "90m", "2h", "10d").
@@ -201,6 +211,11 @@ class InfluxSource:
         self.groups = {}
         for name, m in METRICS.items():
             self.groups.setdefault((m["db"], m["measurement"]), []).append(name)
+        # A no_data filter is applied to the whole query, so it is only safe when
+        # the metric does not share its measurement with another metric.
+        for key, names in self.groups.items():
+            if len(names) > 1 and any(_no_data(n) for n in names):
+                raise ValueError(f"no_data cannot be used on a shared measurement: {key}")
 
     # ---- low level ---------------------------------------------------------
     def _query(self, db: str, q: str):
@@ -215,7 +230,7 @@ class InfluxSource:
         series = result.get("series")
         return series[0] if series else None
 
-    def _where(self, device, start: str) -> str:
+    def _where(self, device, start: str, extra: str = "") -> str:
         # Only ever called with a MAC from the device registry and a range key
         # from parse_range(), both checked here so nothing odd reaches the query.
         mac = device["mac"]
@@ -223,11 +238,13 @@ class InfluxSource:
             raise ValueError(f"Invalid MAC in registry: {mac!r}")
         if not re.fullmatch(r"\d+[smhd]", start):
             raise ValueError(f"Invalid duration: {start!r}")
-        return f"WHERE \"{self.mac_tag}\" = '{mac}' AND time > now() - {start}"
+        return f"WHERE \"{self.mac_tag}\" = '{mac}' AND time > now() - {start}{extra}"
 
     def _convert(self, name: str, value):
         if value is None:
             return None
+        if float(value) in _no_data(name):
+            return None  # the device reported "no data"
         return round(float(value) / METRICS[name]["divisor"], 4)
 
     def _fetch_all(self, fn):
@@ -275,8 +292,11 @@ class InfluxSource:
             db, measurement = key
             cols = ", ".join(
                 f'{METRICS[n]["agg"]}("{METRICS[n]["field"]}") AS "{n}"' for n in names)
+            # Leave "no data" markers out of the averages so they don't drag the mean.
+            skip = "".join(f' AND "{METRICS[n]["field"]}" != {v}'
+                           for n in names for v in _no_data(n))
             q = (f'SELECT {cols} FROM "{measurement}" '
-                 f'{self._where(device, range_)} GROUP BY time({window}) fill(none)')
+                 f'{self._where(device, range_, skip)} GROUP BY time({window}) fill(none)')
             series = self._query(db, q)
             if not series:
                 return []
