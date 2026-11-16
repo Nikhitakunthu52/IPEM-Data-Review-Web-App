@@ -1,6 +1,7 @@
 """IPEM Lab Data API.
 
-Run:  .venv/bin/python -m uvicorn main:app --reload
+Run (with the virtual environment active):  python -m uvicorn main:app --reload
+Setup steps for Windows and macOS are in API.md.
 Docs: http://localhost:8000/docs
 """
 import os
@@ -16,11 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 import data  # noqa: E402
-from data import DEFAULT_WINDOW, MAX_POINTS, RANGES, WINDOW_SECONDS  # noqa: E402
+from data import MAX_POINTS, WINDOW_SECONDS, default_window, parse_range  # noqa: E402
 
 API_KEY = os.getenv("API_KEY", "dev-key")
 
-app = FastAPI(title="IPEM Lab Data API", version="0.2.0")
+app = FastAPI(title="IPEM Lab Data API", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
@@ -30,8 +31,7 @@ app.add_middleware(
 
 source = data.get_source()
 
-RangeName = Literal["1d", "3d", "7d", "30d"]
-WindowName = Literal["1m", "5m", "15m", "30m", "1h", "2h", "6h"]
+WindowName = Literal["1s", "5s", "10s", "30s", "1m", "2m", "5m", "15m", "30m", "1h", "2h", "6h"]
 
 
 def require_key(x_api_key: str = Header(..., description="Shared API key")):
@@ -107,22 +107,28 @@ def latest(device_id: str):
     reading = source.latest(device)
     if reading is None:
         raise HTTPException(status_code=404, detail="No data from this device in the last 5 minutes")
-    return {"device_id": device["id"], **with_zones(reading)}
+    return {"device_id": device["id"], **with_zones(reading), "units": data.UNITS}
 
 
 @app.get("/devices/{device_id}/history", dependencies=[Depends(require_key)])
 def history(
     device_id: str,
-    range: RangeName = Query("1d", description="1d, 3d, 7d (1 week) or 30d (1 month)"),
+    range: str = Query("1d", description="How far back: a number plus m, h or d, e.g. 5m, 12h, 7d, 90m (1m to 30d)"),
     window: Optional[WindowName] = Query(None, description="Averaging window; picked automatically if empty"),
 ):
     device = find_device(device_id)
-    window = window or DEFAULT_WINDOW[range]
-    if RANGES[range] // WINDOW_SECONDS[window] > MAX_POINTS:
+    try:
+        seconds = parse_range(range)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    range = range.strip().lower()
+    window = window or data.default_window(seconds)
+    if seconds // WINDOW_SECONDS[window] > MAX_POINTS:
         raise HTTPException(status_code=400, detail=f"Window too small for this range (max {MAX_POINTS} points)")
     return {
         "device_id": device["id"],
         "range": range,
         "window": window,
+        "units": data.UNITS,
         "points": source.history(device, range, window),
     }

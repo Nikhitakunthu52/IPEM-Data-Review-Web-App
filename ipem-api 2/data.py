@@ -4,37 +4,96 @@ MockSource   - fake readings so the frontend can be built without server access.
 InfluxSource - real data from InfluxDB 1.8 (InfluxQL over HTTP, username/password).
 
 Pick one with DATA_MODE=mock|influx in .env.
+
+All metrics are defined once in METRICS below: where each one lives (database,
+measurement, field), the divisor the lab dashboards apply, and its display unit.
+Adding a metric is one new entry.
 """
 import json
+import logging
 import math
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+log = logging.getLogger("ipem.data")
+
 HERE = Path(__file__).parent
 
-FIELDS = {
-    # API name  -> field name in InfluxDB (set in .env; empty = not in the main
-    # measurement, e.g. temperature, which comes from its own database below)
-    "voltage": os.getenv("FIELD_VOLTAGE", "voltage"),
-    "current": os.getenv("FIELD_CURRENT", "current"),
-    "temperature": os.getenv("FIELD_TEMPERATURE", "temperature"),
+FEATURES_DB = os.getenv("INFLUX_DB", "SP_Features")
+FEATURES_MEASUREMENT = os.getenv("INFLUX_MEASUREMENT", "Features_v2")
+WAVEFORM_DB = os.getenv("INFLUX_WAVEFORM_DB", "waveform")
+
+# API name -> where it lives and how to turn the stored number into the displayed one.
+#   divisor: the "value"/N in the SmartPP and SmartPlug_Features dashboard queries
+#   unit:    "" means the dashboard shows a plain number (Grafana unit "short")
+#   agg:     how history windows combine raw points ("last" for cumulative counters)
+#   no_data: optional raw values the device sends when it has no reading (power factor
+#            sends -1000 or 1000 when nothing is being drawn). They become null in the API
+#            and are left out of history averages. Only set it on a metric that has its own
+#            measurement, because the filter applies to the whole query.
+METRICS = {
+    # Features_v2 is stored in real units already.
+    "voltage": dict(db=FEATURES_DB, measurement=FEATURES_MEASUREMENT,
+                    field=os.getenv("FIELD_VOLTAGE", "VF_RMS"), divisor=1, unit="V", agg="mean"),
+    "current": dict(db=FEATURES_DB, measurement=FEATURES_MEASUREMENT,
+                    field=os.getenv("FIELD_CURRENT", "IF_RMS"), divisor=1, unit="A", agg="mean"),
+    # Everything below comes from the waveform database (field "value").
+    "thd": dict(db=WAVEFORM_DB, measurement="Volt_THD", field="value", divisor=1, unit="", agg="mean"),
+    "temperature": dict(db=WAVEFORM_DB, measurement="temperature", field="value", divisor=10, unit="\u00b0C", agg="mean"),
+    "power": dict(db=WAVEFORM_DB, measurement="Power", field="value", divisor=10, unit="", agg="mean"),
+    "apparent_power": dict(db=WAVEFORM_DB, measurement="Apparent_Power", field="value", divisor=10, unit="", agg="mean"),
+    "reactive_power": dict(db=WAVEFORM_DB, measurement="Reactive_Power", field="value", divisor=10, unit="", agg="mean"),
+    "power_factor": dict(db=WAVEFORM_DB, measurement="Power_Factor", field="value", divisor=1, unit="", agg="mean",
+                         no_data=(-1000, 1000)),
+    "energy": dict(db=WAVEFORM_DB, measurement="Power_Energy_Acc", field="value", divisor=1, unit="", agg="last"),
 }
+UNITS = {name: m["unit"] for name, m in METRICS.items()}
 
-# Time ranges the user can pick: 1 day, 3 days, 1 week, 1 month.
-# The keys are also valid InfluxQL durations (now() - 30d).
-RANGES = {"1d": 86400, "3d": 3 * 86400, "7d": 7 * 86400, "30d": 30 * 86400}
 
-# Averaging window per range. Keeps every chart at roughly 290-360 points
-# instead of ~15 raw samples per second (1.3 million points per day).
-DEFAULT_WINDOW = {"1d": "5m", "3d": "15m", "7d": "30m", "30d": "2h"}
+def _no_data(name: str) -> tuple:
+    """Raw values that mean 'no reading' for this metric (empty for most metrics)."""
+    return tuple(METRICS[name].get("no_data", ()))
+
+# Time ranges. The chart can show any span from 1 minute to 30 days: pick one of the
+# presets below or send your own number and unit (e.g. "90m", "2h", "10d").
+# Units: m = minutes, h = hours, d = days. The keys are valid InfluxQL durations.
+RANGE_PRESETS = ["5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d", "3d", "7d", "30d"]
+UNIT_SECONDS = {"m": 60, "h": 3600, "d": 86400}
+MIN_RANGE_SECONDS = 60
+MAX_RANGE_SECONDS = 30 * 86400
+RANGE_RE = re.compile(r"^([1-9]\d{0,4})([mhd])$")
+
+
+def parse_range(text: str) -> int:
+    """'90m' -> 5400. Raises ValueError for anything that is not a valid range."""
+    m = RANGE_RE.match((text or "").strip().lower())
+    if not m:
+        raise ValueError("Range must be a whole number plus m, h or d, e.g. 30m, 12h, 7d")
+    seconds = int(m.group(1)) * UNIT_SECONDS[m.group(2)]
+    if not MIN_RANGE_SECONDS <= seconds <= MAX_RANGE_SECONDS:
+        raise ValueError("Range must be between 1m and 30d")
+    return seconds
+
+
+# Averaging windows. Raw data arrives at about 15 samples per second.
 WINDOW_SECONDS = {
-    "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
-    "1h": 3600, "2h": 7200, "6h": 21600,
+    "1s": 1, "5s": 5, "10s": 10, "30s": 30, "1m": 60, "2m": 120, "5m": 300,
+    "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200, "6h": 21600,
 }
+TARGET_POINTS = 360   # aim for charts of at most about this many points
 MAX_POINTS = 2000
+
+
+def default_window(range_seconds: int) -> str:
+    """Smallest window that keeps the chart at or under TARGET_POINTS points."""
+    for name, step in sorted(WINDOW_SECONDS.items(), key=lambda kv: kv[1]):
+        if range_seconds // step <= TARGET_POINTS:
+            return name
+    return "6h"
 
 
 # ---------------------------------------------------------------- devices --
@@ -109,7 +168,13 @@ class MockSource:
             "time": _iso(t),
             "voltage": round(110 + 4 * math.sin(s / 3600 + seed) + 1.5 * math.sin(s / 40), 2),
             "current": round(9.5 + 1.8 * math.sin(s / 5400 + seed) + 0.3 * math.sin(s / 17), 3),
+            "thd": round(20 + seed + 2 * math.sin(s / 41), 3),
             "temperature": round(50 + 18 * math.sin(s / 7200 + seed) + math.sin(s / 300), 2),
+            "power": round(100 + 10 * seed + 5 * math.sin(s / 23), 3),
+            "apparent_power": round(120 + 10 * seed + 5 * math.sin(s / 29), 3),
+            "reactive_power": round(-60 - 5 * seed + 3 * math.sin(s / 31), 3),
+            "power_factor": round(46 + seed + math.sin(s / 37), 3),
+            "energy": round(13000 + seed * 100 + (s % 86400) / 10, 3),
         }
 
     def latest(self, device):
@@ -118,7 +183,7 @@ class MockSource:
     def history(self, device, range_: str, window: str):
         end = datetime.now(timezone.utc)
         step = WINDOW_SECONDS[window]
-        n = RANGES[range_] // step
+        n = parse_range(range_) // step
         return [self._reading(device, end - timedelta(seconds=step * i)) for i in range(n, -1, -1)]
 
 
@@ -126,7 +191,8 @@ class MockSource:
 class InfluxSource:
     """InfluxDB 1.8 via the HTTP /query endpoint (InfluxQL, username/password).
 
-    Written by Ayush for the lab server; ranges and MAC checking updated.
+    Every metric in METRICS is fetched; metrics in the same (database,
+    measurement) share one query and the queries run in parallel.
     """
     mode = "influx"
 
@@ -137,21 +203,24 @@ class InfluxSource:
         self.requests = requests
         self.url = os.environ["INFLUX_URL"].rstrip("/") + "/query"
         self.auth = (os.environ["INFLUX_USER"], os.environ["INFLUX_PASSWORD"])
-        self.db = os.environ["INFLUX_DB"]
-        self.measurement = os.environ["INFLUX_MEASUREMENT"]
         self.mac_tag = os.getenv("INFLUX_MAC_TAG", "location")
         self.verify = os.getenv("INFLUX_VERIFY_SSL", "true").lower() != "false"
         if not self.verify:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        # Temperature lives in a different database (waveform), stored x10.
-        self.temp_db = os.getenv("INFLUX_TEMP_DB", "")
-        self.temp_measurement = os.getenv("INFLUX_TEMP_MEASUREMENT", "temperature")
-        self.temp_field = os.getenv("INFLUX_TEMP_FIELD", "value")
-        self.temp_divisor = float(os.getenv("INFLUX_TEMP_DIVISOR", "10"))
 
-    def _query(self, q: str, db=None):
+        self.groups = {}
+        for name, m in METRICS.items():
+            self.groups.setdefault((m["db"], m["measurement"]), []).append(name)
+        # A no_data filter is applied to the whole query, so it is only safe when
+        # the metric does not share its measurement with another metric.
+        for key, names in self.groups.items():
+            if len(names) > 1 and any(_no_data(n) for n in names):
+                raise ValueError(f"no_data cannot be used on a shared measurement: {key}")
+
+    # ---- low level ---------------------------------------------------------
+    def _query(self, db: str, q: str):
         r = self.requests.get(
-            self.url, params={"db": db or self.db, "q": q},
+            self.url, params={"db": db, "q": q},
             auth=self.auth, verify=self.verify, timeout=30,
         )
         r.raise_for_status()
@@ -161,77 +230,89 @@ class InfluxSource:
         series = result.get("series")
         return series[0] if series else None
 
-    def _where(self, device, start: str) -> str:
+    def _where(self, device, start: str, extra: str = "") -> str:
         # Only ever called with a MAC from the device registry and a range key
-        # from RANGES, both checked here so nothing odd reaches the query.
+        # from parse_range(), both checked here so nothing odd reaches the query.
         mac = device["mac"]
         if not MAC_RE.match(mac):
             raise ValueError(f"Invalid MAC in registry: {mac!r}")
         if not re.fullmatch(r"\d+[smhd]", start):
             raise ValueError(f"Invalid duration: {start!r}")
-        return f"WHERE \"{self.mac_tag}\" = '{mac}' AND time > now() - {start}"
+        return f"WHERE \"{self.mac_tag}\" = '{mac}' AND time > now() - {start}{extra}"
 
-    def _rows(self, series):
-        if not series:
-            return []
-        cols = series["columns"]
-        rows = []
-        for values in series["values"]:
-            d = dict(zip(cols, values))
-            row = {"time": d["time"]}
-            for api_name in FIELDS:
-                val = d.get(api_name)
-                row[api_name] = None if val is None else round(float(val), 4)
-            rows.append(row)
-        return rows
-
-    def _temp_latest(self, device):
-        if not self.temp_db:
+    def _convert(self, name: str, value):
+        if value is None:
             return None
-        try:
-            q = (f'SELECT last("{self.temp_field}") FROM "{self.temp_measurement}" '
-                 f'{self._where(device, "5m")}')
-            series = self._query(q, self.temp_db)
-            val = series["values"][0][1] if series else None
-            return None if val is None else round(float(val) / self.temp_divisor, 2)
-        except Exception:
-            return None
+        if float(value) in _no_data(name):
+            return None  # the device reported "no data"
+        return round(float(value) / METRICS[name]["divisor"], 4)
 
-    def _temp_history(self, device, range_: str, window: str):
-        if not self.temp_db:
-            return {}
-        try:
-            q = (f'SELECT mean("{self.temp_field}") FROM "{self.temp_measurement}" '
-                 f'{self._where(device, range_)} GROUP BY time({window}) fill(none)')
-            series = self._query(q, self.temp_db)
-            if not series:
-                return {}
-            return {t: round(float(v) / self.temp_divisor, 2)
-                    for t, v in series["values"] if v is not None}
-        except Exception:
-            return {}
+    def _fetch_all(self, fn):
+        """Run fn(group_key, names) for every group in parallel. A failing group
+        leaves its metrics null; if every group fails, raise."""
+        results, errors = [], []
+        with ThreadPoolExecutor(max_workers=len(self.groups)) as pool:
+            futures = [(key, pool.submit(fn, key, names)) for key, names in self.groups.items()]
+            for key, fut in futures:
+                try:
+                    results.append(fut.result())
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("query failed for %s/%s: %s", key[0], key[1], exc)
+                    errors.append(exc)
+        if errors and not results:
+            raise errors[-1]
+        return results
 
+    # ---- latest ------------------------------------------------------------
     def latest(self, device):
-        cols = ", ".join(f'"{v}" AS "{k}"' for k, v in FIELDS.items() if v)
-        q = (f'SELECT {cols} FROM "{self.measurement}" '
-             f'{self._where(device, "5m")} ORDER BY time DESC LIMIT 1')
-        rows = self._rows(self._query(q))
-        if not rows:
-            return None
-        if self.temp_db:
-            rows[0]["temperature"] = self._temp_latest(device)
-        return rows[0]
+        def run(key, names):
+            db, measurement = key
+            cols = ", ".join(f'"{METRICS[n]["field"]}" AS "{n}"' for n in names)
+            q = (f'SELECT {cols} FROM "{measurement}" '
+                 f'{self._where(device, "5m")} ORDER BY time DESC LIMIT 1')
+            series = self._query(db, q)
+            if not series or not series["values"]:
+                return None, {}
+            row = dict(zip(series["columns"], series["values"][0]))
+            return row["time"], {n: self._convert(n, row.get(n)) for n in names}
 
+        reading = {n: None for n in METRICS}
+        times = []
+        for time_, values in self._fetch_all(run):
+            if time_ is not None:
+                times.append(time_)
+            reading.update(values)
+        if not times:
+            return None
+        return {"time": max(times), **reading}
+
+    # ---- history -----------------------------------------------------------
     def history(self, device, range_: str, window: str):
-        cols = ", ".join(f'mean("{v}") AS "{k}"' for k, v in FIELDS.items() if v)
-        q = (f'SELECT {cols} FROM "{self.measurement}" '
-             f'{self._where(device, range_)} GROUP BY time({window}) fill(none)')
-        rows = self._rows(self._query(q))
-        if self.temp_db:
-            temps = self._temp_history(device, range_, window)
-            for row in rows:
-                row["temperature"] = temps.get(row["time"])
-        return rows
+        def run(key, names):
+            db, measurement = key
+            cols = ", ".join(
+                f'{METRICS[n]["agg"]}("{METRICS[n]["field"]}") AS "{n}"' for n in names)
+            # Leave "no data" markers out of the averages so they don't drag the mean.
+            skip = "".join(f' AND "{METRICS[n]["field"]}" != {v}'
+                           for n in names for v in _no_data(n))
+            q = (f'SELECT {cols} FROM "{measurement}" '
+                 f'{self._where(device, range_, skip)} GROUP BY time({window}) fill(none)')
+            series = self._query(db, q)
+            if not series:
+                return []
+            out = []
+            for values in series["values"]:
+                row = dict(zip(series["columns"], values))
+                out.append((row["time"], {n: self._convert(n, row.get(n)) for n in names}))
+            return out
+
+        merged = {}
+        for group_rows in self._fetch_all(run):
+            for time_, values in group_rows:
+                row = merged.setdefault(time_, {n: None for n in METRICS})
+                row.update(values)
+        # Window-aligned timestamps are identical across databases.
+        return [{"time": t, **merged[t]} for t in sorted(merged)]
 
 
 def get_source():
